@@ -1,53 +1,59 @@
+// 파일: server.go
 package main
-import ("errors"
+
+import (
+	"errors"
 	"flag"
 	"fmt"
-	"net"
-	"time"
 	"math/rand"
-	"secretstrings/stubs"
-	"net/rpc")
+	"net"
+	"net/rpc"
+	"time"
+	"uk.ac.bris.cs/distributed2/secretstrings/stubs"
+)
 
-/** Super-Secret `reversing a string' method we can't allow clients to see. **/
-func ReverseString(s string, i int) string {
-    time.Sleep(time.Duration(rand.Intn(i))* time.Second)
-    runes := []rune(s)
-    for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-        runes[i], runes[j] = runes[j], runes[i]
-    }
-    return string(runes)
+func ReverseString(s string, delay int) string {
+	time.Sleep(time.Duration(rand.Intn(delay)) * time.Second)
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
 }
 
-type SecretStringOperations struct {}
+type SecretStringOperations struct{}
 
-func (s *SecretStringOperations) Reverse(req stubs.Request, res *stubs.Response) (err error) {
+func (s *SecretStringOperations) Reverse(req stubs.Request, res *stubs.Response) error {
 	if req.Message == "" {
-		err = errors.New("A message must be specified")
-		return
+		return errors.New("A message must be specified")
 	}
-
-	fmt.Println("Got Message: "+req.Message)
+	fmt.Println("Received Message:", req.Message)
 	res.Message = ReverseString(req.Message, 10)
-	return
+	return nil
 }
 
-func (s *SecretStringOperations) FastReverse(req stubs.Request, res *stubs.Response) (err error) {
+func (s *SecretStringOperations) FastReverse(req stubs.Request, res *stubs.Response) error {
 	if req.Message == "" {
-		err = errors.New("A message must be specified")
-		return
+		return errors.New("A message must be specified")
 	}
-
 	res.Message = ReverseString(req.Message, 2)
-	return
+	return nil
 }
 
-
-func main(){
-	pAddr := flag.String("port","8030","Port to listen on")
+func main() {
+	port := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
+
 	rpc.Register(&SecretStringOperations{})
-	listener, _ := net.Listen("tcp", ":"+*pAddr)
+
+	listener, err := net.Listen("tcp", ":"+*port)
+	if err != nil {
+		fmt.Println("Error starting server:", err)
+		return
+	}
 	defer listener.Close()
+	fmt.Println("Server is listening on port", *port)
+
 	rpc.Accept(listener)
 }

@@ -1,33 +1,80 @@
+// 파일: client.go
 package main
 
 import (
 	"bufio"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net/rpc"
 	"os"
-	"secretstrings/stubs"
+	"time"
+	"uk.ac.bris.cs/distributed2/secretstrings/stubs"
 )
 
-func makeCall(client *rpc.Client, message string) {
+// 서버 주소 목록
+var servers = []string{
+	"localhost:8030",
+	"localhost:8031",
+	"localhost:8032",
+}
+
+func makeCall(client *rpc.Client, message string, handler string) {
 	request := stubs.Request{Message: message}
 	response := new(stubs.Response)
-	client.Call(stubs.ReverseHandler, request, response)
-	fmt.Println("Responded: " + response.Message)
+	err := client.Call(handler, request, response)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	fmt.Println("Responded:", response.Message)
 }
 
 func main() {
-	server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+	wordlist := flag.String("file", "wordlist", "File containing words to reverse")
 	flag.Parse()
-	client, _ := rpc.Dial("tcp", *server)
-	defer client.Close()
 
-	file, _ := os.Open("wordlist")
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		t := scanner.Text()
-		fmt.Println("Called: " + t)
-		makeCall(client, t)
+	// wordlist 파일을 열기
+	file, err := os.Open(*wordlist)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return
+	}
+	defer file.Close()
+
+	// 서버 리스트의 각 서버에 대해 클라이언트 설정
+	clients := []*rpc.Client{}
+	for _, server := range servers {
+		client, err := rpc.Dial("tcp", server)
+		if err != nil {
+			fmt.Println("Error connecting to server:", server, "-", err)
+			continue
+		}
+		defer client.Close()
+		clients = append(clients, client)
 	}
 
+	// 파일에서 각 단어를 읽어 순차적으로 서버에 분배
+	scanner := bufio.NewScanner(file)
+	i := 0
+	for scanner.Scan() {
+		if len(clients) == 0 {
+			fmt.Println("No servers available for processing")
+			return
+		}
+		word := scanner.Text()
+		client := clients[i%len(clients)] // 서버를 순환하면서 선택
+		fmt.Printf("Sending '%s' to server %s\n", word, servers[i%len(servers)])
+		makeCall(client, word, stubs.ReverseHandler)
+		i++
+		time.Sleep(time.Millisecond * 500) // 작업 간격 설정
+	}
+
+	// 프리미엄 함수 FastReverse 테스트
+	rand.Seed(time.Now().UnixNano())
+	if len(clients) > 0 {
+		premiumClient := clients[rand.Intn(len(clients))]
+		fmt.Println("\n--- Premium Tier ---")
+		makeCall(premiumClient, "Premium Service Test", stubs.PremiumReverseHandler)
+	}
 }
