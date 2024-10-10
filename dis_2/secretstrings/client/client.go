@@ -7,17 +7,20 @@ import (
 	"math/rand"
 	"net/rpc"
 	"os"
+	"sync"
 	"time"
 	"uk.ac.bris.cs/distributed2/secretstrings/stubs"
 )
 
 var servers = []string{
-	"localhost:8030",
-	"localhost:8031",
-	"localhost:8032",
+	"35.175.153.208:8030",
+	"54.81.38.201:8030",
+	//"localhost:8032",
 }
 
-func makeCall(client *rpc.Client, message string, handler string) {
+func makeCall(client *rpc.Client, message string, handler string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	request := stubs.Request{Message: message}
 	response := new(stubs.Response)
 	err := client.Call(handler, request, response)
@@ -52,27 +55,34 @@ func main() {
 		clients = append(clients, client)
 	}
 
+	if len(clients) == 0 {
+		fmt.Println("No servers available for processing")
+		return
+	}
+
 	// 파일에서 각 단어를 읽어 순차적으로 서버에 분배
+	// Optional: 2 instances working together
+	var wg sync.WaitGroup
 	scanner := bufio.NewScanner(file)
 	i := 0
 	for scanner.Scan() {
-		if len(clients) == 0 {
-			fmt.Println("No servers available for processing")
-			return
-		}
 		word := scanner.Text()
-		client := clients[i%len(clients)] // 서버를 순환하면서 선택
-		fmt.Printf("Sending '%s' to server %s\n", word, servers[i%len(servers)])
-		makeCall(client, word, stubs.ReverseHandler)
+		client := clients[i%len(clients)]
+		wg.Add(1)
+		go makeCall(client, word, stubs.ReverseHandler, &wg)
 		i++
-		time.Sleep(time.Millisecond * 500) // 작업 간격 설정
 	}
+
+	wg.Wait()
 
 	// 프리미엄 함수 FastReverse 테스트
 	rand.Seed(time.Now().UnixNano())
 	if len(clients) > 0 {
 		premiumClient := clients[rand.Intn(len(clients))]
 		fmt.Println("\n--- Premium Tier ---")
-		makeCall(premiumClient, "Premium Service Test", stubs.PremiumReverseHandler)
+		wg.Add(1)
+		go makeCall(premiumClient, "Premium Service Test", stubs.PremiumReverseHandler, &wg)
 	}
+	wg.Wait()
+	fmt.Println("\n--- All requests complete ---")
 }
